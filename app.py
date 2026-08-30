@@ -13,14 +13,18 @@ from datetime import date as _date
 import fitz  # PyMuPDF
 import argostranslate.translate
 import urllib.request
+import urllib.error
 from flask import Flask, send_file, render_template_string, abort, request, jsonify, Response, stream_with_context
 from werkzeug.utils import secure_filename
 
-VERSION = "3.1"
+VERSION = "3.2"
 
 OLLAMA_URL   = "http://localhost:11434"
 OLLAMA_MODEL        = "qwen2.5:7b-instruct-q4_K_M"
 OLLAMA_MODEL_ESQUEMA = "qwen2.5:7b-instruct-q4_K_M"
+
+CLAUDE_URL   = "https://api.anthropic.com/v1/messages"
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 def ollama_available() -> bool:
     try:
@@ -28,6 +32,47 @@ def ollama_available() -> bool:
         return True
     except Exception:
         return False
+
+def claude_available() -> bool:
+    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+
+def claude_stream(prompt: str, max_tokens: int = 4096):
+    """Generador de fragmentos de texto desde la API de Anthropic (streaming SSE)."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    payload = json.dumps({
+        "model": CLAUDE_MODEL,
+        "max_tokens": max_tokens,
+        "stream": True,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(
+        CLAUDE_URL, data=payload, method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        for raw_line in resp:
+            line = raw_line.decode("utf-8").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if not data:
+                continue
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "content_block_delta":
+                text = event.get("delta", {}).get("text", "")
+                if text:
+                    yield text
+            elif event.get("type") == "error":
+                raise RuntimeError(event.get("error", {}).get("message", "Error de la API de Claude"))
+            elif event.get("type") == "message_stop":
+                return
 
 ESQUEMA_PROMPT = """Eres un asistente de máster de rol experto. Analiza el texto de la siguiente aventura y genera un esquema de preparación de partida en español.
 
@@ -68,7 +113,7 @@ Text to translate:
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 300 * 1024 * 1024  # 300 MB por subida
 
-from config import OBSIDIAN_BIBLIOTECA, OBSIDIAN_TRADUCCIONES, OBSIDIAN_PARTIDAS
+from config import OBSIDIAN_BIBLIOTECA, OBSIDIAN_TRADUCCIONES, OBSIDIAN_PARTIDAS, PANTALLASISTEMAS_URL
 
 BIBLIOTECA = Path(__file__).parent / "biblioteca"
 BIBLIOTECA.mkdir(exist_ok=True)  # no viaja con el repo (gitignored) — se crea vacía al primer arranque
@@ -388,6 +433,9 @@ HTML_LIBRARY = """<!DOCTYPE html>
   <div class="ornament">——  Fondo de libros  ——</div>
   <a href="/jobs" style="text-decoration:none;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:var(--gold);padding:0.4rem 1rem;border-radius:8px;font-size:0.82rem;font-family:inherit">📚 Traducciones en curso</a>
   <button type="button" id="upload-btn" style="cursor:pointer;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:var(--gold);padding:0.4rem 1rem;border-radius:8px;font-size:0.82rem;font-family:inherit;margin-left:.5rem">📤 Subir documentos</button>
+  <button type="button" id="rag-btn" title="Pide a Pantallasistemas que reindexe esta biblioteca para su asistente IA"
+          style="cursor:pointer;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:var(--gold);padding:0.4rem 1rem;border-radius:8px;font-size:0.82rem;font-family:inherit;margin-left:.5rem">🔄 Generar RAG</button>
+  <div id="rag-status" style="font-size:0.75rem;color:var(--muted);margin-top:.4rem"></div>
 </div>
 
 <div class="hero-search">
@@ -583,6 +631,39 @@ HTML_LIBRARY = """<!DOCTYPE html>
     dragCounter = 0;
     dropzone.style.display = 'none';
     if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+  });
+})();
+
+// ── Botón "Generar RAG" (dispara reindexado en Pantallasistemas, si está disponible) ──
+(function() {
+  const btn      = document.getElementById('rag-btn');
+  const statusEl = document.getElementById('rag-status');
+  if (!btn) return;
+  let poll = null;
+
+  function setStatus(text, color) {
+    statusEl.textContent = text;
+    statusEl.style.color = color || 'var(--muted)';
+  }
+
+  function pollStatus() {
+    fetch('/generar-rag/status').then(r => r.json()).then(d => {
+      if (d.proxy_error) { setStatus('⚠ ' + d.proxy_error, '#f87171'); clearInterval(poll); btn.disabled = false; return; }
+      if (d.running) { setStatus('Indexando… puede tardar varios minutos.', 'var(--gold)'); return; }
+      clearInterval(poll); btn.disabled = false;
+      if (d.error) { setStatus('⚠ ' + d.error, '#f87171'); return; }
+      setStatus('✓ Reindexado completado.', '#4ade80');
+    }).catch(() => {});
+  }
+
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    setStatus('Lanzando indexación…', 'var(--muted)');
+    fetch('/generar-rag', { method: 'POST' }).then(r => r.json()).then(d => {
+      if (!d.ok) { setStatus('⚠ ' + (d.error || 'Error desconocido'), '#f87171'); btn.disabled = false; return; }
+      poll = setInterval(pollStatus, 3000);
+      pollStatus();
+    }).catch(err => { setStatus('⚠ Error de red: ' + err.message, '#f87171'); btn.disabled = false; });
   });
 })();
 
@@ -979,6 +1060,7 @@ HTML_VIEWER = """<!DOCTYPE html>
       <span class="th-title">Traducción y notas</span>
       <div class="engine-toggle">
         <button class="engine-btn active" id="eng-ollama" data-engine="ollama">Ollama</button>
+        <button class="engine-btn" id="eng-claude" data-engine="claude">Claude</button>
         <button class="engine-btn" id="eng-argos" data-engine="argos">Argos</button>
       </div>
       <button class="trans-close" id="trans-close">✕</button>
@@ -1227,11 +1309,20 @@ let lastTransText = '';  // último texto traducido (para guardar)
 // Comprobar motores disponibles
 fetch('/translate/status').then(r => r.json()).then(d => {
   const btnOllama = document.getElementById('eng-ollama');
+  const btnClaude = document.getElementById('eng-claude');
   if (!d.ollama) {
     btnOllama.disabled = true;
     btnOllama.title = 'Ollama no disponible';
-    currentEngine = 'argos';
-    document.getElementById('eng-argos').classList.add('active');
+  }
+  if (!d.claude) {
+    btnClaude.disabled = true;
+    btnClaude.title = 'Configura ANTHROPIC_API_KEY en .env para usar Claude';
+  }
+  if (!d.ollama) {
+    // Elegir el primer motor utilizable como activo por defecto
+    const fallback = d.claude ? 'claude' : 'argos';
+    currentEngine = fallback;
+    document.getElementById('eng-' + fallback).classList.add('active');
     btnOllama.classList.remove('active');
   }
 });
@@ -1248,7 +1339,9 @@ document.querySelectorAll('.engine-btn').forEach(btn => {
 });
 
 function engineLabel(e) {
-  return e === 'ollama' ? 'Ollama · qwen2.5:7b' : 'Argos Translate (offline)';
+  if (e === 'ollama') return 'Ollama · qwen2.5:7b';
+  if (e === 'claude') return 'Claude · haiku 4.5';
+  return 'Argos Translate (offline)';
 }
 
 const notesArea  = document.getElementById('trans-notes');
@@ -1312,12 +1405,12 @@ async function translatePage(pageNum) {
 
   transBody.innerHTML =
     '<div class="trans-engine-tag">Motor: ' + engineLabel(currentEngine) + '</div>' +
-    '<div class="trans-loading">Enviando texto a Ollama…</div>' +
-    '<p style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">La primera traducción puede tardar 20-30 s mientras el modelo carga.</p>';
+    '<div class="trans-loading">Enviando texto a ' + engineLabel(currentEngine) + '…</div>' +
+    '<p style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">La primera traducción puede tardar unos segundos.</p>';
 
   const url = '/translate/' + REL + '?page=' + pageNum + '&engine=' + currentEngine;
 
-  if (currentEngine === 'ollama') {
+  if (currentEngine === 'ollama' || currentEngine === 'claude') {
     // Streaming SSE
     let textDiv = null;
     let buffer  = '';
@@ -1333,7 +1426,7 @@ async function translatePage(pageNum) {
         // Primera vez: quitar spinner y crear contenedor de texto
         if (!textDiv) {
           transBody.innerHTML =
-            '<div class="trans-engine-tag">Motor: ' + engineLabel('ollama') + '</div>' +
+            '<div class="trans-engine-tag">Motor: ' + engineLabel(currentEngine) + '</div>' +
             '<div id="trans-stream"></div>';
           textDiv = document.getElementById('trans-stream');
         }
@@ -1357,7 +1450,7 @@ async function translatePage(pageNum) {
             const tps = s.eval_duration > 0
               ? (s.gen_tokens / (s.eval_duration / 1e9)).toFixed(1) + ' t/s'
               : '';
-            const parts = [engineLabel('ollama')];
+            const parts = [engineLabel(currentEngine)];
             if (s.prompt_tokens) parts.push('entrada: ' + s.prompt_tokens + ' tok');
             if (s.gen_tokens)    parts.push('salida: ' + s.gen_tokens + ' tok');
             if (tps)             parts.push(tps);
@@ -1636,6 +1729,37 @@ def upload_files():
     return jsonify({"ok": True, "uploaded": uploaded, "rechazados": rechazados})
 
 
+@app.route("/generar-rag", methods=["POST"])
+def generar_rag():
+    """Proxy hacia Pantallasistemas (proyecto hermano, opcional): le pide que
+    reindexe esta biblioteca vía su propio /api/rag/reindex. No hay import ni
+    llamada directa a su código — solo HTTP, así que si no está instalado o
+    no está corriendo, esto falla con un mensaje claro sin afectar al resto
+    de la app."""
+    try:
+        req = urllib.request.Request(f"{PANTALLASISTEMAS_URL}/api/rag/reindex", method="POST")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return jsonify(json.loads(resp.read())), resp.status
+    except urllib.error.HTTPError as e:
+        try:
+            return jsonify(json.loads(e.read())), e.code
+        except Exception:
+            return jsonify({"ok": False, "error": f"Pantallasistemas respondió {e.code}"}), e.code
+    except urllib.error.URLError as e:
+        return jsonify({"ok": False, "error": f"No se pudo contactar con Pantallasistemas en {PANTALLASISTEMAS_URL}: {e.reason}"}), 502
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/generar-rag/status")
+def generar_rag_status():
+    try:
+        with urllib.request.urlopen(f"{PANTALLASISTEMAS_URL}/api/rag/status", timeout=5) as resp:
+            return jsonify(json.loads(resp.read()))
+    except Exception as e:
+        return jsonify({"proxy_error": str(e)}), 502
+
+
 @app.route("/search")
 def search_books():
     q = request.args.get("q", "").strip().lower()
@@ -1699,7 +1823,7 @@ def clean_pdf_text(raw: str) -> str:
 
 @app.route("/translate/status")
 def translate_status():
-    return jsonify({"ollama": ollama_available(), "argos": True})
+    return jsonify({"ollama": ollama_available(), "claude": claude_available(), "argos": True})
 
 @app.route("/translate/<path:rel_path>")
 def translate_page(rel_path):
@@ -1723,7 +1847,19 @@ def translate_page(rel_path):
         return jsonify({"empty": True})
     text = clean_pdf_text(raw)
 
-    if engine == "ollama" and ollama_available():
+    if engine == "claude" and claude_available():
+        # Streaming via Server-Sent Events
+        def generate():
+            try:
+                for token in claude_stream(TRANSLATE_PROMPT + text):
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'engine': 'claude'})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        return Response(stream_with_context(generate()),
+                        mimetype="text/event-stream",
+                        headers={"X-Accel-Buffering": "no"})
+    elif engine == "ollama" and ollama_available():
         # Streaming via Server-Sent Events
         def generate():
             payload = json.dumps({
@@ -1761,7 +1897,7 @@ def translate_page(rel_path):
         # Argos (síncrono, respaldo)
         try:
             translated = argostranslate.translate.translate(text, "en", "es")
-            warning = "Ollama no disponible, usando Argos." if engine == "ollama" else None
+            warning = f"{engine.capitalize()} no disponible, usando Argos." if engine != "argos" else None
             return jsonify({"translated": translated, "engine": "argos",
                             "empty": False, "warning": warning})
         except Exception as e:
@@ -2034,7 +2170,7 @@ def save_note(rel_path):
     book_name = target.stem
     note_file = OBSIDIAN_BIBLIOTECA / f"{book_name}.md"
     today     = _date.today().isoformat()
-    eng_label = "Ollama · qwen2.5:7b" if engine == "ollama" else "Argos Translate"
+    eng_label = {"ollama": "Ollama · qwen2.5:7b", "claude": f"Claude · {CLAUDE_MODEL}"}.get(engine, "Argos Translate")
 
     if not note_file.exists():
         note_file.write_text(

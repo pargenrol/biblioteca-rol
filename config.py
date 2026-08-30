@@ -24,12 +24,12 @@ def _optional_path(env_var: str, default: str = "") -> Path | None:
 # funciones de "guardar en vault" (notas, traducciones, esquemas de partida)
 # quedan desactivadas — el resto de la app (biblioteca, visor, subida)
 # funciona igual sin esto configurado.
-OBSIDIAN_BIBLIOTECA = _optional_path(
-    "OBSIDIAN_BIBLIOTECA",
-    "/mnt/data/webdav/Obsidian/Obsidian/0300-Rol y Ocio 🎲/Biblioteca Pargen",
-)
+OBSIDIAN_BIBLIOTECA = _optional_path("OBSIDIAN_BIBLIOTECA")
 OBSIDIAN_TRADUCCIONES = (OBSIDIAN_BIBLIOTECA / "Traducciones") if OBSIDIAN_BIBLIOTECA else None
-OBSIDIAN_PARTIDAS = _optional_path(
-    "OBSIDIAN_PARTIDAS",
-    "/mnt/data/webdav/Obsidian/Obsidian/0300-Rol y Ocio 🎲/Partidas",
-)
+OBSIDIAN_PARTIDAS = _optional_path("OBSIDIAN_PARTIDAS")
+
+# URL de Pantallasistemas (proyecto hermano, opcional), solo para el botón
+# "Generar RAG" — le pide que reindexe esta biblioteca. Si no está accesible,
+# el botón simplemente muestra un error claro; el resto de la app no depende
+# de esto en absoluto.
+PANTALLASISTEMAS_URL = os.environ.get("PANTALLASISTEMAS_URL", "http://localhost:5001").rstrip("/")

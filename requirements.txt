@@ -1,0 +1,4 @@
+Flask>=3.0
+PyMuPDF>=1.24
+argostranslate>=1.9
+telethon>=1.34
