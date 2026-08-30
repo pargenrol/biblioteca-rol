@@ -2,6 +2,8 @@
 
 Una aplicación web para gestionar y consultar una biblioteca de PDFs de rol: navegación por carpetas, búsqueda, visor integrado, traducción de páginas al vuelo (o de un libro entero en segundo plano) y generación de un esquema de preparación de partida a partir del texto de una aventura. Pensada como **proyecto complementario e independiente** de [Pantallasistemas](https://github.com/pargenrol/PantallaDigitalMaster) — funciona perfectamente sola, y si además tienes Pantallasistemas instalado, su asistente IA puede indexar y citar estos mismos PDFs (ver sección "Proyecto hermano" más abajo).
 
+> 📖 Ver [`MANUAL.md`](MANUAL.md) para el paso a paso completo de instalación y uso.
+
 ## ✨ Características
 
 * **📂 Biblioteca navegable**: carpetas por sistema/tema, búsqueda por nombre, miniaturas de portada.
