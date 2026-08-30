@@ -1,0 +1,20 @@
+# Credenciales / sesión de Telegram — nunca deben publicarse
+.env
+sesion_biblioteca.session
+sesion_biblioteca.session-journal
+
+# Contenido con derechos de autor — cada usuario aporta el suyo (ver readme)
+biblioteca/
+vault-obsidian/
+Compilados/
+Pregenerados/
+
+# Estado en ejecución / generado
+jobs/
+static/thumbs/
+static/folder_covers.json
+__pycache__/
+*.pyc
+
+# Configuración local de herramientas (no forma parte del proyecto)
+.claude/
