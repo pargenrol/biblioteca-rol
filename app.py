@@ -70,6 +70,7 @@ app.config["MAX_CONTENT_LENGTH"] = 300 * 1024 * 1024  # 300 MB por subida
 from config import OBSIDIAN_BIBLIOTECA, OBSIDIAN_TRADUCCIONES, OBSIDIAN_PARTIDAS
 
 BIBLIOTECA = Path(__file__).parent / "biblioteca"
+BIBLIOTECA.mkdir(exist_ok=True)  # no viaja con el repo (gitignored) — se crea vacía al primer arranque
 JOBS_DIR            = Path(__file__).parent / "jobs"
 JOBS_DIR.mkdir(exist_ok=True)
 WORKER              = Path(__file__).parent / "translate_worker.py"
