@@ -4,6 +4,7 @@
 from pathlib import Path
 from urllib.parse import quote
 from hashlib import md5
+import os
 import threading
 import json
 import subprocess
@@ -2428,4 +2429,5 @@ def debug_esquema_jobs():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8765, debug=False)
+    port = int(os.environ.get("PORT", "8765"))
+    app.run(host="0.0.0.0", port=port, debug=False)
