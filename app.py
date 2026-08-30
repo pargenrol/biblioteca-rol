@@ -15,7 +15,7 @@ import urllib.request
 from flask import Flask, send_file, render_template_string, abort, request, jsonify, Response, stream_with_context
 from werkzeug.utils import secure_filename
 
-VERSION = "3.0"
+VERSION = "3.1"
 
 OLLAMA_URL   = "http://localhost:11434"
 OLLAMA_MODEL        = "qwen2.5:7b-instruct-q4_K_M"
