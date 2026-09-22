@@ -4,6 +4,23 @@ Historial de cambios significativos del proyecto.
 
 ---
 
+## [2026-09-22] — Versión 3.3: arrastre con ratón en el visor de PDF
+
+### Contexto
+El visor de PDF permite ampliar la página con el botón "+", pero al hacerlo en Mac/PC no había forma de desplazarse por ella: la rueda del ratón solo hacía zoom (con Ctrl/Cmd) y el arrastre para moverse solo estaba implementado para gestos táctiles (un dedo), que sí funcionaba en tablet.
+
+### Corregido
+- **Arrastrar con el botón izquierdo del ratón** para desplazarse por la página ampliada, igual que el gesto de un dedo en la tablet — con cursor de manita (🤚/✊) como pista visual.
+- **Rueda del ratón/trackpad sin Ctrl** también desplaza la página cuando hay zoom (Ctrl+rueda sigue haciendo zoom, sin cambios).
+
+### Ficheros modificados
+- `app.py` — manejadores `mousedown`/`mousemove`/`mouseup` y `wheel` sin Ctrl en el visor de PDF (HTML_VIEWER)
+- `VERSION` (`app.py`) — **3.2 → 3.3**
+
+Subido a `pargenrol/biblioteca-rol` (rama `main`).
+
+---
+
 ## [2026-08-30] — Versión 3.2: traducción con Claude, integración con Pantallasistemas y corrección de rutas personales
 
 ### Añadido

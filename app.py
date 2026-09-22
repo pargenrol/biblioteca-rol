@@ -17,7 +17,7 @@ import urllib.error
 from flask import Flask, send_file, render_template_string, abort, request, jsonify, Response, stream_with_context
 from werkzeug.utils import secure_filename
 
-VERSION = "3.2"
+VERSION = "3.3"
 
 OLLAMA_URL   = "http://localhost:11434"
 OLLAMA_MODEL        = "qwen2.5:7b-instruct-q4_K_M"
@@ -1119,6 +1119,7 @@ viewer.appendChild(canvas);
 
 function applyTransform() {
   canvas.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+  if (!_drag) canvas.style.cursor = zoom > 1.05 ? 'grab' : '';
 }
 
 function clampPan() {
@@ -1165,6 +1166,7 @@ function goToPage(n) {
   btnNext.disabled = n >= pdfDoc.numPages;
   zoom = 1.0; panX = 0; panY = 0;
   canvas.style.transform = '';
+  canvas.style.cursor = '';
   resetNotes();
   if (transOpen) translatePage(n);
   renderCurrentPage();
@@ -1273,6 +1275,42 @@ viewer.addEventListener('touchend', e => {
   }
   if (e.touches.length === 0) _touch = null;
 }, { passive: true });
+
+// ── Ratón/trackpad (Mac/PC): arrastrar para desplazarse cuando hay zoom,
+// igual que el gesto de un dedo en la tablet — sin esto, una vez ampliada
+// la página con "+" no había forma de moverse por ella en escritorio. ──────
+let _drag = null;
+
+viewer.addEventListener('mousedown', e => {
+  if (zoom <= 1.05) return;
+  _drag = { x0: e.clientX, y0: e.clientY, panX0: panX, panY0: panY };
+  canvas.style.cursor = 'grabbing';
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', e => {
+  if (!_drag) return;
+  panX = _drag.panX0 + e.clientX - _drag.x0;
+  panY = _drag.panY0 + e.clientY - _drag.y0;
+  clampPan(); applyTransform();
+});
+
+window.addEventListener('mouseup', () => {
+  if (!_drag) return;
+  _drag = null;
+  canvas.style.cursor = zoom > 1.05 ? 'grab' : '';
+});
+
+// Rueda del ratón/trackpad sin Ctrl: si hay zoom, desplaza en vez de no hacer
+// nada (Ctrl+rueda se deja para el zoom, como ya estaba).
+viewer.addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey) return;
+  if (zoom <= 1.05) return;
+  e.preventDefault();
+  panX -= e.deltaX;
+  panY -= e.deltaY;
+  clampPan(); applyTransform();
+}, { passive: false });
 
 // ── Carga ───────────────────────────────────────────────────────────────────
 async function loadPDF() {
