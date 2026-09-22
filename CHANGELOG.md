@@ -17,7 +17,7 @@ El visor de PDF permite ampliar la página con el botón "+", pero al hacerlo en
 - `app.py` — manejadores `mousedown`/`mousemove`/`mouseup` y `wheel` sin Ctrl en el visor de PDF (HTML_VIEWER)
 - `VERSION` (`app.py`) — **3.2 → 3.3**
 
-Subido a `pargenrol/biblioteca-rol` (rama `main`).
+Subido a `pargenrol/biblioteca-rol` (rama `main`) — `3548a9d`.
 
 ---
 
